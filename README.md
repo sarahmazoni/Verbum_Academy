@@ -113,11 +113,10 @@ Os documentos de requisitos e escopo fornecidos para o Projeto Integrador estão
 - Gabriel
 
 ## Entrega Atual
-
 - Aplicação: https://verbum-academy.onrender.com/
-- Documentação da etapa 3: docs/lgpd.md
-- Quadro Kanban: https://github.com/users/sarahmazoni/projects/1
-
+- Documentação da etapa: docs/documentacao-tecnico-cientifica.md
+- Checklist 6.1–6.12: docs/checklist-etapa-documentacao.md
+- Kanban: https://github.com/users/sarahmazoni/projects/1
 ## Status
 
 Projeto em desenvolvimento.
