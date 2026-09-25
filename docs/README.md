@@ -21,18 +21,11 @@ Pasta de requisitos, escopo, segurança e evidências do Projeto Integrador — 
 | Requisitos(2).pdf | Rubrica / checklist oficial de avaliação |
 | [auditoria-eventos.md](auditoria-eventos.md) | Eventos que a etapa de logs deve gravar |
 | [auditoria-logs.md](auditoria-logs.md) | Etapa 4: auditoria, proteção do log e análise |
+| documentacao-tecnico-cientifica.md | Etapa atual: itens 6.1 a 6.12 |
+| checklist-etapa-documentacao.md | Checklist desta entrega |
 
 ## Status da documentação
 
 Já documentado:
 
-- autenticação e gestão de credenciais
-- recuperação de senha
-- conformidade com a LGPD (itens 4.1 a 4.11)
-- auditoria e logs (itens 5.1 a 5.4)
-
-Eventos gravados por `audit_log()` em `accounts/views.py`:
-LOGIN_SUCCESS, LOGIN_FAILURE, ACCOUNT_LOCKED, LOGOUT, 2FA_SUCCESS e 2FA_FAILURE.
-
-Consulta somente leitura: `/accounts/auditoria/`.
-Evidências de front-end: `docs/evidencias/` (arquivos 32 a 36).
+- documentação técnico-científica (itens 6.1 a 6.12)
