@@ -104,7 +104,24 @@ As chaves acima são só para desenvolvimento. Em produção elas ficam nas vari
 
 ## Documentação
 
-Os documentos de requisitos e escopo fornecidos para o Projeto Integrador estão disponíveis na pasta docs.
+A documentação do Projeto Integrador está em `docs/`.
+
+Etapa atual — Documentação Técnico-Científica (itens 6.1 a 6.12):
+
+- `docs/documentacao-tecnico-cientifica.md`
+- `docs/checklist-etapa-documentacao.md`
+
+Documentos reaproveitados nesta etapa:
+
+- `docs/seguranca.md`
+- `docs/implementacao.md`
+- `docs/recuperacao-senha.md`
+- `docs/lgpd.md`
+- `docs/testes.md`
+- `docs/auditoria-logs.md`
+- `docs/evidencias/`
+
+Enunciado e rubrica: `docs/Projeto Integrador.pdf` e `docs/Requisitos(2).pdf`.
 
 ## Equipe
 
@@ -113,10 +130,14 @@ Os documentos de requisitos e escopo fornecidos para o Projeto Integrador estão
 - Gabriel
 
 ## Entrega Atual
+
 - Aplicação: https://verbum-academy.onrender.com/
-- Documentação da etapa: docs/documentacao-tecnico-cientifica.md
-- Checklist 6.1–6.12: docs/checklist-etapa-documentacao.md
+- Auditoria (somente leitura): https://verbum-academy.onrender.com/accounts/auditoria/
+- Documentação técnico-científica: `docs/documentacao-tecnico-cientifica.md`
+- Checklist 6.1–6.12: `docs/checklist-etapa-documentacao.md`
 - Kanban: https://github.com/users/sarahmazoni/projects/1
+- Release prevista: v1.5.0
+
 ## Status
 
-Projeto em desenvolvimento.
+Etapa de Documentação Técnico-Científica em preparação para entrega (prazo 27/09/2026).
