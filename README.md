@@ -6,80 +6,69 @@ O **Verbum** é uma plataforma web de aprendizagem de idiomas baseada em vocabul
 
 ## Objetivo
 
-O projeto tem como objetivo disponibilizar uma plataforma que organize o aprendizado de idiomas de forma estruturada, permitindo que o usuário acompanhe seu desenvolvimento em diferentes áreas do idioma estudado.
+Disponibilizar uma plataforma que organize o aprendizado de idiomas de forma estruturada, com foco em segurança da informação e conformidade com a LGPD (Lei nº 13.709/2018).
 
 ## Funcionalidades
 
-Implementadas nesta entrega:
-
 - Cadastro e autenticação de usuários
-- Autenticação em dois fatores (2FA)
-- Recuperação de senha por token temporário (expiração 15 min, uso único e logs)
+- Autenticação em dois fatores (2FA/TOTP) com segredo cifrado (Fernet)
+- Recuperação de senha por token HMAC temporário (15 min, uso único)
+- Direitos do titular (consulta, exportação JSON, exclusão e revogação)
+- Auditoria de eventos críticos (restrita a staff)
+- Proteção contra força bruta (senha e TOTP)
 
 ## Stack Tecnológico
 
 ### Backend
-
-- Python
-- Django
+- Python + Django (arquitetura MVT)
 
 ### Banco de Dados
-
 - SQLite
 
 ### Frontend
+- HTML, CSS e JavaScript
 
-- HTML
-- CSS
-- JavaScript
-
-### Arquitetura
-
-O sistema utiliza a arquitetura MVT (Model-View-Template) disponibilizada pelo framework Django.
+### Segurança
+- PBKDF2-HMAC-SHA256 (hash + salt)
+- TOTP (pyotp) com segredo Fernet
+- Sessão de 30 minutos + cookie HttpOnly
+- Rate-limit de tentativas (senha e TOTP)
+- Deploy no Render com HTTPS
 
 ## Segurança
 
-Implementados nesta entrega:
-
-- Hash e salt das senhas (Django)
-- 2FA (TOTP)
-- Controle e expiração de sessões
-- Proteção contra tentativas excessivas de autenticação
-- Recuperação de senha por token HMAC temporário
-- Logs de solicitação, sucesso e falha da recuperação (sem senha/token)
+- Hash e salt de senhas (Django)
+- 2FA via TOTP com segredo cifrado
+- Sessão de 30 minutos e cookie HttpOnly
+- Bloqueio após 5 tentativas (senha e TOTP)
+- Recuperação por token HMAC (900 s, uso único)
+- Logs sem senha, token ou segredo TOTP
+- Painel de auditoria restrito a usuários staff
 
 ## Privacidade e LGPD
 
-Implementado nesta entrega (Lei nº 13.709/2018, itens 4.1 a 4.11):
-
 - Inventário de dados pessoais com finalidade e base legal
-- Minimização (cadastro sem CPF, telefone ou dado sensível)
-- Consentimento explícito, com finalidade, data e versão da política
-- Revogação do consentimento
-- Consulta dos dados do titular
-- Exportação em JSON
-- Exclusão da conta e dos dados pessoais
+- Minimização (sem CPF, telefone ou dados sensíveis)
+- Consentimento explícito com data e versão da política
+- Consulta, exportação JSON, revogação e exclusão
 
 Documentação: `docs/lgpd.md`  
 Política versionada: `docs/politica-privacidade.md`
 
 ## Como executar
 
-### Ambiente publicado (o que o professor testa)
-
+### Ambiente publicado
 https://verbum-academy.onrender.com/
 
 ### Ambiente local
 
-No PowerShell, na pasta que contém `manage.py`:
-
-    $env:DJANGO_SECRET_KEY="dev"
-    $env:VERBUM_ENCRYPTION_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-    $env:DEBUG="True"
-    pip install -r requirements.txt
-    python manage.py migrate
-    python manage.py runserver
-
+```powershell
+$env:DJANGO_SECRET_KEY="dev"
+$env:VERBUM_ENCRYPTION_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+$env:DEBUG="True"
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py runserver
 Se o pip reclamar do Django 6.1 no Python 3.11:
 
     python -m pip install dj-database-url cryptography pyotp whitenoise
