@@ -27,4 +27,16 @@ urlpatterns = [
         views.chunks,
         name="chunks"
     ),
+
+	path(
+        "espanhol/vocabulario/",
+        views.vocabulario_espanhol,
+        name="vocabulario_espanhol"
+    ),
+
+    path(
+        "espanhol/chunks/",
+        views.chunks_espanhol,
+        name="chunks_espanhol"
+    ),
 ]

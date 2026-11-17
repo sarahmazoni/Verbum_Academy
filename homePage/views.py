@@ -8,6 +8,7 @@ from accounts.models import UserProfile
 from accounts.views import login_view
 
 from .vocabulario import PALAVRAS, CHUNKS
+from .espanhol import PALAVRAS_ESPANHOL, CHUNKS_ESPANHOL
 
 def homePage(request):
 
@@ -88,6 +89,78 @@ def chunks(request):
     return render(
         request,
         "chunks.html",
+        {
+            "chunks": chunks_filtrados,
+            "categorias": categorias,
+            "pesquisa": request.GET.get("q", ""),
+            "categoria_selecionada": categoria,
+        },
+    )
+
+
+@login_required
+def vocabulario_espanhol(request):
+    pesquisa = request.GET.get("q", "").strip().casefold()
+    categoria = request.GET.get("categoria", "").strip()
+
+    categorias = sorted({
+        palavra["category"]
+        for palavra in PALAVRAS_ESPANHOL
+    })
+
+    palavras_filtradas = [
+        palavra
+        for palavra in PALAVRAS_ESPANHOL
+        if (
+            not pesquisa
+            or pesquisa in palavra["word"].casefold()
+            or pesquisa in palavra["translation"].casefold()
+        )
+        and (
+            not categoria
+            or palavra["category"] == categoria
+        )
+    ]
+
+    return render(
+        request,
+        "vocabulario_espanhol.html",
+        {
+            "palavras": palavras_filtradas,
+            "categorias": categorias,
+            "pesquisa": request.GET.get("q", ""),
+            "categoria_selecionada": categoria,
+        },
+    )
+
+
+@login_required
+def chunks_espanhol(request):
+    pesquisa = request.GET.get("q", "").strip().casefold()
+    categoria = request.GET.get("categoria", "").strip()
+
+    categorias = sorted({
+        chunk["category"]
+        for chunk in CHUNKS_ESPANHOL
+    })
+
+    chunks_filtrados = [
+        chunk
+        for chunk in CHUNKS_ESPANHOL
+        if (
+            not pesquisa
+            or pesquisa in chunk["word"].casefold()
+            or pesquisa in chunk["translation"].casefold()
+        )
+        and (
+            not categoria
+            or chunk["category"] == categoria
+        )
+    ]
+
+    return render(
+        request,
+        "chunks_espanhol.html",
         {
             "chunks": chunks_filtrados,
             "categorias": categorias,
