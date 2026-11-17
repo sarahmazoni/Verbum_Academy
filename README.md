@@ -120,13 +120,9 @@ Enunciado e rubrica: `docs/Projeto Integrador.pdf` e `docs/Requisitos(2).pdf`.
 
 ## Entrega Atual
 
-- Aplicação: https://verbum-academy.onrender.com/
-- Auditoria (somente leitura): https://verbum-academy.onrender.com/accounts/auditoria/
-- Documentação técnico-científica: `docs/documentacao-tecnico-cientifica.md`
-- Checklist 6.1–6.12: `docs/checklist-etapa-documentacao.md`
-- Kanban: https://github.com/users/sarahmazoni/projects/1
-- Release prevista: v1.5.0
+Aplicação: [verbum-academy.onrender.com](https://verbum-academy.onrender.com/)
+Repositório: [github.com/sarahmazoni/Verbum_Academy](https://github.com/sarahmazoni/Verbum_Academy)
+Kanban: [github.com/users/sarahmazoni/projects/1](https://github.com/users/sarahmazoni/projects/1)
+Release: v1.7.0 (17/11/2026)
 
-## Status
 
-Etapa de Documentação Técnico-Científica em preparação para entrega (prazo 27/09/2026).
