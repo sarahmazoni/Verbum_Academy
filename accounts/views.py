@@ -16,8 +16,8 @@ from accounts.crypto import encrypt_totp_secret, decrypt_totp_secret
 import pyotp
 import logging
 
-# Logger do app accounts. A configuração em Verbum/settings.py
-# grava estas linhas no arquivo verbum.log (modo append).
+
+# Logger do app accounts
 logger = logging.getLogger(__name__)
 
 # Máximo de tentativas de senha errada antes do bloqueio temporário
@@ -28,535 +28,677 @@ LOCKOUT_DURATION = timedelta(minutes=5)
 
 
 def _client_ip(request):
-	# IP do cliente para o registro de auditoria.
-	# Em produção atrás de proxy o Render pode enviar X-Forwarded-For;
-	# REMOTE_ADDR já atende o requisito da etapa.
-	return request.META.get('REMOTE_ADDR', '-')
+    return request.META.get('REMOTE_ADDR', '-')
 
 
 def audit_log(request, event, success, message, user=None, email=None):
-	# Grava evento crítico em verbum.log.
-	# Não registra senha, token, código 2FA, secret TOTP ou hash.
-	if user is not None:
-		user_id = getattr(user, 'id', '-')
-		email = email or getattr(user, 'email', '-')
-	else:
-		user_id = '-'
-		email = email or '-'
+    # Não registra senha, token, código 2FA, secret TOTP ou hash.
+    if user is not None:
+        user_id = getattr(user, 'id', '-')
+        email = email or getattr(user, 'email', '-')
+    else:
+        user_id = '-'
+        email = email or '-'
 
-	logger.info(
-		'event=%s success=%s user_id=%s email=%s ip=%s message=%s',
-		event,
-		str(success).lower(),
-		user_id,
-		email,
-		_client_ip(request),
-		message,
-	)
+    logger.info(
+        'event=%s success=%s user_id=%s email=%s ip=%s message=%s',
+        event,
+        str(success).lower(),
+        user_id,
+        email,
+        _client_ip(request),
+        message,
+    )
 
 
 def register(request):
-	if request.method == 'POST':
-		username = request.POST.get('username')
-		email = request.POST.get('email')
-		password = request.POST.get('password')
-		password_confirmation = request.POST.get('password_confirmation')
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        email = request.POST.get('email')
+        password = request.POST.get('password')
+        password_confirmation = request.POST.get('password_confirmation')
 
-		# Se a senha e a confirmação forem diferentes, o cadastro não segue
-		if password != password_confirmation:
-			return render(
-				request,
-				'register.html',
-				{'error': 'As senhas não coincidem.'}
-			)
+        # Verifica se as senhas são iguais
+        if password != password_confirmation:
+            return render(
+                request,
+                'register.html',
+                {'error': 'As senhas não coincidem.'}
+            )
 
-		# Impede cadastro com nome de usuário que já existe
-		if User.objects.filter(username=username).exists():
-			return render(
-				request,
-				'register.html',
-				{'error': 'Este nome de usuário já está cadastrado.'}
-			)
+        # Verifica se o usuário já existe
+        if User.objects.filter(username=username).exists():
+            return render(
+                request,
+                'register.html',
+                {'error': 'Este nome de usuário já está cadastrado.'}
+            )
 
-		# Aplica os validadores de senha configurados no settings.py
-		try:
-			validate_password(password)
-		except ValidationError as e:
-			return render(
-				request,
-				'register.html',
-				{'error': ' '.join(e.messages)}
-			)
+        # Valida a senha
+        try:
+            validate_password(password)
+        except ValidationError as e:
+            return render(
+                request,
+                'register.html',
+                {'error': ' '.join(e.messages)}
+            )
 
-		# Sem o aceite da política o cadastro não é criado (consentimento livre, art. 8º)
-		if not request.POST.get('consent'):
-			return render(
-				request,
-				'register.html',
-				{'error': 'É necessário aceitar a Política de Privacidade para criar a conta.'}
-			)
+        # Verifica o aceite da política de privacidade
+        if not request.POST.get('consent'):
+            return render(
+                request,
+                'register.html',
+                {
+                    'error': 'É necessário aceitar a Política de Privacidade para criar a conta.'
+                }
+            )
 
-		# A senha não é gravada em texto puro; o Django aplica o hash
-		user = User.objects.create_user(
-			username=username,
-			email=email,
-			password=password
-		)
+        # Cria o usuário
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password
+        )
 
-		UserProfile.objects.create(user=user)
+        # Cria o perfil com o idioma padrão definido no model
+        UserProfile.objects.create(user=user)
 
-		# Registra finalidade, data (auto) e versão da política
-		ConsentRecord.objects.create(
-			user=user,
-			purpose=ConsentRecord.PURPOSE_DEFAULT,
-			granted=True,
-			policy_version="1.0",
-			source="register",
-		)
-		logger.info("Consentimento registrado no cadastro.")
+        # Registra o consentimento
+        ConsentRecord.objects.create(
+            user=user,
+            purpose=ConsentRecord.PURPOSE_DEFAULT,
+            granted=True,
+            policy_version="1.0",
+            source="register",
+        )
 
-		return render(
-			request,
-			'register.html',
-			{'success': 'Usuário cadastrado com sucesso!'}
-		)
+        logger.info("Consentimento registrado no cadastro.")
 
-	return render(request, 'register.html')
+        return render(
+            request,
+            'register.html',
+            {'success': 'Usuário cadastrado com sucesso!'}
+        )
+
+    return render(request, 'register.html')
 
 
 def login_view(request):
-	# A tela de login está na home. Esta rota não renderiza /accounts/login/
-	if request.method != 'POST':
-		return redirect('/')
+    # A tela de login está na home
+    if request.method != 'POST':
+        return redirect('/')
 
-	# Primeiramente nós pegamos os dados inseridos pelo usuário sendo eles email e senha
-	email = request.POST.get('email')
-	password = request.POST.get('password')
+    email = request.POST.get('email')
+    password = request.POST.get('password')
 
-	# Aqui o código ignora se o email foi escrito com letras maiúsculas ou minúsculas com o iexact
-	try:
-		user = User.objects.get(email__iexact=email)
-	except User.DoesNotExist:
-		user = None
+    # Localiza o usuário pelo e-mail
+    try:
+        user = User.objects.get(email__iexact=email)
+    except User.DoesNotExist:
+        user = None
 
-	if user is not None:
-		# CORREÇÃO DO ERRO 500: antes o código fazia "profile = user.userprofile",
-		# que quebra (lança exceção e gera 500) se esse usuário não tiver um
-		# UserProfile associado — o que acontece com contas criadas fora do
-		# fluxo de registro do site (ex: pelo Django Admin ou createsuperuser).
-		# get_or_create busca o perfil e, se não existir, cria um automaticamente
-		# na hora, então o login nunca mais quebra por causa disso.
-		profile, _ = UserProfile.objects.get_or_create(user=user)
+    if user is not None:
 
-		# Verifica se a conta está temporariamente bloqueada
-		if profile.locked_until is not None:
-			if timezone.now() < profile.locked_until:
-				# Auditoria: tentativa enquanto a conta ainda está bloqueada
-				audit_log(
-					request,
-					event='ACCOUNT_LOCKED',
-					success=False,
-					message='Conta bloqueada por excesso de tentativas.',
-					user=user,
-					email=user.email,
-				)
-				messages.error(request, 'Conta temporariamente bloqueada. Tente novamente mais tarde.')
-				return redirect('/')
+        # Busca ou cria o perfil
+        profile, _ = UserProfile.objects.get_or_create(user=user)
 
-			# Se o período de bloqueio terminou, a conta é liberada
-			profile.locked_until = None
-			profile.failed_login_attempts = 0
-			profile.save(
-				update_fields=['locked_until', 'failed_login_attempts']
-			)
+        # Verifica se a conta está bloqueada
+        if profile.locked_until is not None:
 
-		# Aqui verifica a senha e se estiver correta o authenticate_user será um usuário e se estiver errada será none
-		authenticated_user = authenticate(
-			request,
-			username=user.username,
-			password=password
-		)
+            if timezone.now() < profile.locked_until:
+                audit_log(
+                    request,
+                    event='ACCOUNT_LOCKED',
+                    success=False,
+                    message='Conta bloqueada por excesso de tentativas.',
+                    user=user,
+                    email=user.email,
+                )
 
-		# Essa parte é a que cria a sessão de autenticação do usuário e redireciona o usuário para a página painel após o login.
-		if authenticated_user is not None:
-			# A senha está correta, então zeramos as tentativas anteriores
-			profile.failed_login_attempts = 0
-			profile.locked_until = None
-			profile.save(
-				update_fields=['failed_login_attempts', 'locked_until']
-			)
+                messages.error(
+                    request,
+                    'Conta temporariamente bloqueada. Tente novamente mais tarde.'
+                )
 
-			# Auditoria: autenticação primária concluída (ainda pode faltar o 2FA)
-			audit_log(
-				request,
-				event='LOGIN_SUCCESS',
-				success=True,
-				message='Autenticação primária concluída com sucesso.',
-				user=authenticated_user,
-				email=authenticated_user.email,
-			)
+                return redirect('/')
 
-			# Se o usuário possui 2FA ativado, ainda não fazemos o login
-			if profile.two_factor_enabled:
-				# Guardamos temporariamente o ID do usuário na sessão
-				request.session['pending_2fa_user_id'] = authenticated_user.id
-				# Enviamos o usuário para a tela de validação do 2FA
-				return redirect('verify_2fa')
+            # Libera a conta após o período de bloqueio
+            profile.locked_until = None
+            profile.failed_login_attempts = 0
 
-			# Se o 2FA não estiver ativado, o login continua normalmente
-			auth_login(request, authenticated_user)
-			return redirect('painel')
+            profile.save(
+                update_fields=['locked_until', 'failed_login_attempts']
+            )
 
-		else:
-			# A senha informada está incorreta
-			profile.failed_login_attempts += 1
+        # Verifica a senha
+        authenticated_user = authenticate(
+            request,
+            username=user.username,
+            password=password
+        )
 
-			# Se atingir o limite, a conta é bloqueada temporariamente
-			if profile.failed_login_attempts >= MAX_LOGIN_ATTEMPTS:
-				profile.locked_until = timezone.now() + LOCKOUT_DURATION
-				profile.save(
-					update_fields=['failed_login_attempts', 'locked_until']
-				)
-				# Auditoria: senha errada e limite de tentativas atingido
-				audit_log(
-					request,
-					event='LOGIN_FAILURE',
-					success=False,
-					message='Falha na autenticação primária.',
-					user=user,
-					email=user.email,
-				)
-				audit_log(
-					request,
-					event='ACCOUNT_LOCKED',
-					success=False,
-					message='Conta bloqueada por excesso de tentativas.',
-					user=user,
-					email=user.email,
-				)
-				messages.error(request, 'Conta temporariamente bloqueada. Tente novamente mais tarde.')
-				return redirect('/')
+        if authenticated_user is not None:
 
-			profile.save(
-				update_fields=['failed_login_attempts']
-			)
-			# Auditoria: senha errada, ainda sem bloqueio
-			audit_log(
-				request,
-				event='LOGIN_FAILURE',
-				success=False,
-				message='Falha na autenticação primária.',
-				user=user,
-				email=user.email,
-			)
+            # Zera as tentativas anteriores
+            profile.failed_login_attempts = 0
+            profile.locked_until = None
 
-	else:
-		# Auditoria: e-mail inexistente (mesma mensagem da senha errada)
-		audit_log(
-			request,
-			event='LOGIN_FAILURE',
-			success=False,
-			message='Falha na autenticação primária.',
-			email=email or '-',
-		)
+            profile.save(
+                update_fields=['failed_login_attempts', 'locked_until']
+            )
 
-	messages.error(request, 'Email ou senha inválidos.')
-	return redirect('/')
+            # Registra login bem-sucedido
+            audit_log(
+                request,
+                event='LOGIN_SUCCESS',
+                success=True,
+                message='Autenticação primária concluída com sucesso.',
+                user=authenticated_user,
+                email=authenticated_user.email,
+            )
 
+            # Verifica se o usuário possui 2FA
+            if profile.two_factor_enabled:
+                request.session['pending_2fa_user_id'] = authenticated_user.id
+                return redirect('verify_2fa')
 
-# Tela de perfil do usuário autenticado
+            # Finaliza o login
+            auth_login(request, authenticated_user)
+
+            return redirect('painel')
+
+        else:
+            # Senha incorreta
+            profile.failed_login_attempts += 1
+
+            # Verifica se atingiu o limite de tentativas
+            if profile.failed_login_attempts >= MAX_LOGIN_ATTEMPTS:
+
+                profile.locked_until = timezone.now() + LOCKOUT_DURATION
+
+                profile.save(
+                    update_fields=['failed_login_attempts', 'locked_until']
+                )
+
+                audit_log(
+                    request,
+                    event='LOGIN_FAILURE',
+                    success=False,
+                    message='Falha na autenticação primária.',
+                    user=user,
+                    email=user.email,
+                )
+
+                audit_log(
+                    request,
+                    event='ACCOUNT_LOCKED',
+                    success=False,
+                    message='Conta bloqueada por excesso de tentativas.',
+                    user=user,
+                    email=user.email,
+                )
+
+                messages.error(
+                    request,
+                    'Conta temporariamente bloqueada. Tente novamente mais tarde.'
+                )
+
+                return redirect('/')
+
+            profile.save(
+                update_fields=['failed_login_attempts']
+            )
+
+            audit_log(
+                request,
+                event='LOGIN_FAILURE',
+                success=False,
+                message='Falha na autenticação primária.',
+                user=user,
+                email=user.email,
+            )
+
+    else:
+        # E-mail inexistente
+        audit_log(
+            request,
+            event='LOGIN_FAILURE',
+            success=False,
+            message='Falha na autenticação primária.',
+            email=email or '-',
+        )
+
+    messages.error(request, 'Email ou senha inválidos.')
+
+    return redirect('/')
+
+# PERFIL DO USUÁRIO E SELEÇÃO DE IDIOMA
+
 @login_required(login_url="homePage")
 def perfil(request):
-	return render(request, "accounts/user.html")
 
+    profile, _ = UserProfile.objects.get_or_create(
+        user=request.user
+    )
 
-# Diferente das outras funções não coloquei o @login_required aqui pois o usuário ainda não é considerado autenticado pelo Django
-def verify_2fa(request):
-	# Aqui pegamos o ID do usuário que passou pela primeira etapa do login que está armazenado em pending_2fa_user_id
-	user_id = request.session.get('pending_2fa_user_id')
+    if request.method == "POST":
 
-	# Se não tem usuário aguardando o 2FA, volta para a home
-	if not user_id:
-		return redirect('/')
+        idioma = request.POST.get("study_language", "en")
 
-	try:
-		user = User.objects.get(id=user_id)
-	except User.DoesNotExist:
-		request.session.pop('pending_2fa_user_id', None)
-		return redirect('/')
+        # Verifica se o idioma enviado é válido
+        if idioma in dict(UserProfile.LANGUAGE_CHOICES):
 
-	# CORREÇÃO: mesma troca do login_view. "user.userprofile" direto quebraria
-	# com 500 se esse usuário não tivesse UserProfile; get_or_create é seguro.
-	profile, _ = UserProfile.objects.get_or_create(user=user)
+            # Salva o idioma escolhido no banco de dados
+            profile.study_language = idioma
 
-	if request.method == 'POST':
-		codigo = request.POST.get('codigo', '').strip()
-		secret = decrypt_totp_secret(profile.totp_secret)
-		totp = pyotp.TOTP(secret)
+            profile.save(
+                update_fields=["study_language"]
+            )
 
-		if totp.verify(codigo):
-			# O segundo fator foi validado
-			auth_login(request, user)
+            messages.success(
+                request,
+                "Idioma de estudo atualizado."
+            )
 
-			# Auditoria: TOTP válido. O código digitado NÃO entra no log.
-			audit_log(
-				request,
-				event='2FA_SUCCESS',
-				success=True,
-				message='Validação de 2FA concluída com sucesso.',
-				user=user,
-				email=user.email,
-			)
+            return redirect("perfil")
 
-			# Remove o estado temporário da sessão
-			request.session.pop('pending_2fa_user_id', None)
-			return redirect('painel')
-
-		# Auditoria: TOTP inválido. O código digitado NÃO entra no log.
-		audit_log(
-			request,
-			event='2FA_FAILURE',
-			success=False,
-			message='Falha na validação de 2FA.',
-			user=user,
-			email=user.email,
-		)
-		return render(
-			request,
-			'verify_2fa.html',
-			{'error': 'Código 2FA inválido.'}
-		)
-
-	return render(request, 'verify_2fa.html')
-
-
-# Somente um usuário autenticado pode acessar essa página painel.
-@login_required(login_url="homePage")
-def perfil(request):
-    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        messages.error(
+            request,
+            "Selecione um idioma válido."
+        )
 
     return render(
         request,
         "accounts/user.html",
         {
             "two_factor_enabled": profile.two_factor_enabled,
+            "study_language": profile.study_language,
         },
     )
 
-@login_required
+# VALIDAÇÃO DO 2FA
+
+def verify_2fa(request):
+
+    # Recupera o ID armazenado na sessão
+    user_id = request.session.get('pending_2fa_user_id')
+
+    if not user_id:
+        return redirect('/')
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        request.session.pop('pending_2fa_user_id', None)
+        return redirect('/')
+
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+
+    if request.method == 'POST':
+
+        codigo = request.POST.get('codigo', '').strip()
+
+        secret = decrypt_totp_secret(profile.totp_secret)
+
+        totp = pyotp.TOTP(secret)
+
+        if totp.verify(codigo):
+
+            # Login após validar o segundo fator
+            auth_login(request, user)
+
+            audit_log(
+                request,
+                event='2FA_SUCCESS',
+                success=True,
+                message='Validação de 2FA concluída com sucesso.',
+                user=user,
+                email=user.email,
+            )
+
+            request.session.pop('pending_2fa_user_id', None)
+
+            return redirect('painel')
+
+        audit_log(
+            request,
+            event='2FA_FAILURE',
+            success=False,
+            message='Falha na validação de 2FA.',
+            user=user,
+            email=user.email,
+        )
+
+        return render(
+            request,
+            'verify_2fa.html',
+            {'error': 'Código 2FA inválido.'}
+        )
+
+    return render(request, 'verify_2fa.html')
+
+# PAINEL DO USUÁRIO
+
+@login_required(login_url="homePage")
 def painel(request):
-	return render(request, 'painel.html')
+
+    profile, _ = UserProfile.objects.get_or_create(
+        user=request.user
+    )
+
+    return render(
+        request,
+        'painel.html',
+        {
+            'study_language': profile.study_language,
+        },
+    )
 
 
-# Somente um usuário autenticado pode acessar essa página setup2fa.
+# CONFIGURAÇÃO DO 2FA
+
+
 @login_required
 def setup_2fa(request):
-	# CORREÇÃO: mesma troca das outras funções. Como aqui é
-	# "request.user.userprofile", o mesmo risco de 500 existe caso o usuário
-	# logado não tenha UserProfile. get_or_create resolve isso.
-	profile, _ = UserProfile.objects.get_or_create(user=request.user)
 
-	# Se o usuário não tiver um secret TOTP a condicional é True, cria um secret aleatório encripta ele e salva no banco.
-	# Se o usuário já tiver 2fa a variável secret é descriptografada
-	if not profile.totp_secret:
-		secret = pyotp.random_base32()
-		profile.totp_secret = encrypt_totp_secret(secret)
-		profile.save()
-	else:
-		secret = decrypt_totp_secret(profile.totp_secret)
+    profile, _ = UserProfile.objects.get_or_create(
+        user=request.user
+    )
 
-	totp = pyotp.TOTP(secret)
+    # Cria um secret caso ainda não exista
+    if not profile.totp_secret:
 
-	# Se o usuário enviar o formulário nós entramos nesta parte POST /accounts/setup2fa/
-	if request.method == 'POST':
-		# Aqui pegamos o código digitado pelo usuário
-		codigo = request.POST.get('codigo', '').strip()
+        secret = pyotp.random_base32()
 
-		# Faz a verificação do código, se for True entra nessa condicional, habilita 2FA e salva.
-		if totp.verify(codigo):
-			profile.two_factor_enabled = True
-			profile.save()
-			messages.success(
-				request,
-				'Autenticação em dois fatores ativada com sucesso!'
-			)
-			return redirect('painel')
+        profile.totp_secret = encrypt_totp_secret(secret)
 
-		messages.error(
-			request,
-			'Código inválido. Tente novamente.'
-		)
+        profile.save()
 
-	provisioning_uri = totp.provisioning_uri(
-		name=request.user.email,
-		issuer_name='Verbum'
-	)
+    else:
+        secret = decrypt_totp_secret(profile.totp_secret)
 
-	return render(
-		request,
-		'accounts/setup_2fa.html',
-		{
-			'secret': secret,
-			'provisioning_uri': provisioning_uri,
-		}
-	)
+    totp = pyotp.TOTP(secret)
 
+    if request.method == 'POST':
+
+        codigo = request.POST.get('codigo', '').strip()
+
+        if totp.verify(codigo):
+
+            profile.two_factor_enabled = True
+
+            profile.save()
+
+            messages.success(
+                request,
+                'Autenticação em dois fatores ativada com sucesso!'
+            )
+
+            return redirect('painel')
+
+        messages.error(
+            request,
+            'Código inválido. Tente novamente.'
+        )
+
+    provisioning_uri = totp.provisioning_uri(
+        name=request.user.email,
+        issuer_name='Verbum'
+    )
+
+    return render(
+        request,
+        'accounts/setup_2fa.html',
+        {
+            'secret': secret,
+            'provisioning_uri': provisioning_uri,
+        }
+    )
+
+# LOGOUT
 
 def logout_view(request):
-	# Auditoria do encerramento de sessão (item 5.1).
-	# Precisa gravar ANTES do logout, senão o usuário já não está autenticado.
-	# Senha e token não entram no registro.
-	if request.user.is_authenticated:
-		audit_log(
-			request,
-			event='LOGOUT',
-			success=True,
-			message='Sessão encerrada pelo usuário.',
-			user=request.user,
-			email=request.user.email,
-		)
 
-	# Encerra a sessão do usuário
-	logout(request)
-	return redirect('/')
+    if request.user.is_authenticated:
 
+        audit_log(
+            request,
+            event='LOGOUT',
+            success=True,
+            message='Sessão encerrada pelo usuário.',
+            user=request.user,
+            email=request.user.email,
+        )
+
+    logout(request)
+
+    return redirect('/')
+
+# RECUPERAÇÃO DE SENHA
 
 class PasswordResetRequestView(auth_views.PasswordResetView):
 
-	def form_valid(self, form):
-		# Registro de solicitação de recuperação. Nenhum token ou link vai para o log.
-		logger.info('Solicitação de recuperação de senha recebida.')
-		return super().form_valid(form)
+    def form_valid(self, form):
+
+        logger.info(
+            'Solicitação de recuperação de senha recebida.'
+        )
+
+        return super().form_valid(form)
 
 
 class PasswordResetConfirmView(auth_views.PasswordResetConfirmView):
 
-	# Assim que o usuário abrir o link, o Django verifica o token de recuperação
-	def dispatch(self, request, *args, **kwargs):
-		response = super().dispatch(request, *args, **kwargs)
+    def dispatch(self, request, *args, **kwargs):
 
-		# Se o Django identificar que o link contém um token inválido ou expirado, registra a tentativa
-		if getattr(response, 'context_data', {}).get('validlink') is False:
-			logger.warning('Tentativa de recuperação de senha com token inválido ou expirado.')
+        response = super().dispatch(request, *args, **kwargs)
 
-		return response
+        if getattr(response, 'context_data', {}).get('validlink') is False:
 
-	# Assim que o usuário digitar duas senhas iguais no link contendo o token o Django chama esse método
-	def form_valid(self, form):
-		# Faz o registro de que a recuperação de senha foi concluída, sem gravar senha ou token
-		logger.info('Recuperação de senha concluída com sucesso.')
-		return super().form_valid(form)
+            logger.warning(
+                'Tentativa de recuperação de senha com token inválido ou expirado.'
+            )
 
+        return response
+
+    def form_valid(self, form):
+
+        logger.info(
+            'Recuperação de senha concluída com sucesso.'
+        )
+
+        return super().form_valid(form)
+
+
+# POLÍTICA DE PRIVACIDADE
 
 def politica_privacidade(request):
-	# Texto público e versionado da política. Não exige login.
-	return render(
-		request,
-		'accounts/politica_privacidade.html',
-		{'policy_version': '1.0'},
-	)
+
+    return render(
+        request,
+        'accounts/politica_privacidade.html',
+        {
+            'policy_version': '1.0'
+        },
+    )
 
 
 @login_required
 def privacidade(request):
-	# Consulta dos dados do titular autenticado (item 4.8)
-	logger.info("Titular consultou os dados pessoais.")
-	ultimo = request.user.consents.first()
-	return render(
-		request,
-		'accounts/privacidade.html',
-		{'ultimo_consentimento': ultimo},
-	)
+
+    logger.info(
+        "Titular consultou os dados pessoais."
+    )
+
+    ultimo = request.user.consents.first()
+
+    return render(
+        request,
+        'accounts/privacidade.html',
+        {
+            'ultimo_consentimento': ultimo
+        },
+    )
 
 
 @login_required
 def exportar_dados(request):
-	# Exportação em JSON sem senha, salt ou segredo TOTP (item 4.9)
-	ultimo = request.user.consents.first()
-	payload = {
-		'username': request.user.username,
-		'email': request.user.email,
-		'date_joined': request.user.date_joined.isoformat(),
-		'consentimento': None if ultimo is None else {
-			'finalidade': ultimo.purpose,
-			'concedido': ultimo.granted,
-			'data': ultimo.granted_at.isoformat(),
-			'revogado_em': None if ultimo.revoked_at is None else ultimo.revoked_at.isoformat(),
-			'versao_politica': ultimo.policy_version,
-		},
-	}
-	logger.info("Titular exportou os dados pessoais.")
-	response = JsonResponse(payload, json_dumps_params={'ensure_ascii': False, 'indent': 2})
-	response['Content-Disposition'] = 'attachment; filename="meus-dados-verbum.json"'
-	return response
+
+    ultimo = request.user.consents.first()
+
+    payload = {
+        'username': request.user.username,
+        'email': request.user.email,
+        'date_joined': request.user.date_joined.isoformat(),
+
+        'consentimento': None if ultimo is None else {
+            'finalidade': ultimo.purpose,
+            'concedido': ultimo.granted,
+            'data': ultimo.granted_at.isoformat(),
+            'revogado_em': (
+                None if ultimo.revoked_at is None
+                else ultimo.revoked_at.isoformat()
+            ),
+            'versao_politica': ultimo.policy_version,
+        },
+    }
+
+    logger.info(
+        "Titular exportou os dados pessoais."
+    )
+
+    response = JsonResponse(
+        payload,
+        json_dumps_params={
+            'ensure_ascii': False,
+            'indent': 2
+        }
+    )
+
+    response['Content-Disposition'] = (
+        'attachment; filename="meus-dados-verbum.json"'
+    )
+
+    return response
 
 
 @login_required
 def revogar_consentimento(request):
-	# Revoga ou renova o consentimento (item 4.6)
-	if request.method != 'POST':
-		return redirect('privacidade')
 
-	ultimo = request.user.consents.first()
-	if ultimo is not None and ultimo.granted:
-		ultimo.granted = False
-		ultimo.revoked_at = timezone.now()
-		ultimo.save(update_fields=['granted', 'revoked_at'])
-		logger.info("Titular revogou o consentimento.")
-		messages.success(request, 'Consentimento revogado.')
-	else:
-		ConsentRecord.objects.create(
-			user=request.user,
-			purpose=ConsentRecord.PURPOSE_DEFAULT,
-			granted=True,
-			policy_version='1.0',
-			source='privacidade',
-		)
-		logger.info("Titular renovou o consentimento.")
-		messages.success(request, 'Consentimento renovado (política v1.0).')
+    if request.method != 'POST':
+        return redirect('privacidade')
 
-	return redirect('privacidade')
+    ultimo = request.user.consents.first()
+
+    if ultimo is not None and ultimo.granted:
+
+        ultimo.granted = False
+        ultimo.revoked_at = timezone.now()
+
+        ultimo.save(
+            update_fields=['granted', 'revoked_at']
+        )
+
+        logger.info(
+            "Titular revogou o consentimento."
+        )
+
+        messages.success(
+            request,
+            'Consentimento revogado.'
+        )
+
+    else:
+
+        ConsentRecord.objects.create(
+            user=request.user,
+            purpose=ConsentRecord.PURPOSE_DEFAULT,
+            granted=True,
+            policy_version='1.0',
+            source='privacidade',
+        )
+
+        logger.info(
+            "Titular renovou o consentimento."
+        )
+
+        messages.success(
+            request,
+            'Consentimento renovado (política v1.0).'
+        )
+
+    return redirect('privacidade')
 
 
 @login_required
 def excluir_conta(request):
-	# Exclusão da conta com confirmação de e-mail e senha (item 4.10)
-	if request.method != 'POST':
-		return redirect('privacidade')
 
-	email = request.POST.get('email', '')
-	password = request.POST.get('password', '')
+    if request.method != 'POST':
+        return redirect('privacidade')
 
-	if email.lower() != request.user.email.lower():
-		messages.error(request, 'O e-mail informado não confere.')
-		return redirect('privacidade')
+    email = request.POST.get('email', '')
+    password = request.POST.get('password', '')
 
-	if authenticate(request, username=request.user.username, password=password) is None:
-		messages.error(request, 'Senha incorreta. A conta não foi excluída.')
-		return redirect('privacidade')
+    if email.lower() != request.user.email.lower():
 
-	logger.info("Titular solicitou exclusão da conta.")
-	user = request.user
-	logout(request)
-	user.delete()
-	return render(request, 'accounts/conta_excluida.html')
+        messages.error(
+            request,
+            'O e-mail informado não confere.'
+        )
 
+        return redirect('privacidade')
+
+    if authenticate(
+        request,
+        username=request.user.username,
+        password=password
+    ) is None:
+
+        messages.error(
+            request,
+            'Senha incorreta. A conta não foi excluída.'
+        )
+
+        return redirect('privacidade')
+
+    logger.info(
+        "Titular solicitou exclusão da conta."
+    )
+
+    user = request.user
+
+    logout(request)
+
+    user.delete()
+
+    return render(
+        request,
+        'accounts/conta_excluida.html'
+    )
+
+# AUDITORIA
 
 @login_required
 def auditoria_logs(request):
-	# Consulta somente leitura do verbum.log (itens 5.3 e 5.4).
-	# Esta tela não edita, não apaga e não grava linhas.
-	# Senha, token, código 2FA e secret TOTP não aparecem no arquivo.
-	log_path = Path(settings.BASE_DIR) / 'verbum.log'
-	linhas = []
 
-	if log_path.exists():
-		with log_path.open(encoding='utf-8', errors='replace') as arquivo:
-			# Mostra as últimas 200 linhas para a análise na tela
-			linhas = arquivo.read().splitlines()[-200:]
+    log_path = Path(settings.BASE_DIR) / 'verbum.log'
 
-	return render(
-		request,
-		'accounts/auditoria_logs.html',
-		{'linhas': linhas},
-	)
+    linhas = []
+
+    if log_path.exists():
+
+        with log_path.open(
+            encoding='utf-8',
+            errors='replace'
+        ) as arquivo:
+
+            linhas = arquivo.read().splitlines()[-200:]
+
+    return render(
+        request,
+        'accounts/auditoria_logs.html',
+        {
+            'linhas': linhas
+        },
+    )

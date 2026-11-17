@@ -2,6 +2,7 @@
 
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
 
@@ -74,7 +75,11 @@
                 </p>
 
                 <span class="profile-language">
-                    Estudando inglês
+                    {% if study_language == "es" %}
+                        Estudando espanhol
+                    {% else %}
+                        Estudando inglês
+                    {% endif %}
                 </span>
 
                 <div class="profile-information">
@@ -96,27 +101,33 @@
                     </div>
 
                     <div class="profile-information-row">
-                    <span>Segurança 2FA</span>
 
-                    {% if two_factor_enabled %}
-                        <strong class="profile-status active">
-                            Ativado
-                        </strong>
-                    {% else %}
-                        <div>
-                            <strong class="profile-status inactive">
-                                Não ativado
+                        <span>Segurança 2FA</span>
+
+                        {% if two_factor_enabled %}
+
+                            <strong class="profile-status active">
+                                Ativado
                             </strong>
 
-                            <a
-                                href="{% url 'setup_2fa' %}"
-                                class="profile-2fa-link"
-                            >
-                                Ativar 2FA
-                            </a>
-                        </div>
-                    {% endif %}
-                </div>
+                        {% else %}
+
+                            <div>
+                                <strong class="profile-status inactive">
+                                    Não ativado
+                                </strong>
+
+                                <a
+                                    href="{% url 'setup_2fa' %}"
+                                    class="profile-2fa-link"
+                                >
+                                    Ativar 2FA
+                                </a>
+                            </div>
+
+                        {% endif %}
+
+                    </div>
 
                 </div>
 
@@ -143,6 +154,7 @@
                 </header>
 
                 <form method="post" class="profile-form">
+
                     {% csrf_token %}
 
                     <div class="profile-field">
@@ -217,6 +229,8 @@
 
                     </div>
 
+                    <!-- Seleção do idioma de estudo -->
+
                     <div class="profile-field profile-field-full">
 
                         <label for="study_language">
@@ -226,10 +240,23 @@
                         <select
                             id="study_language"
                             name="study_language"
+                            required
                         >
-                            <option value="en" selected>
-                                Inglês
+
+                            <option
+                                value="en"
+                                {% if study_language == "en" %}selected{% endif %}
+                            >
+                                EN Inglês
                             </option>
+
+                            <option
+                                value="es"
+                                {% if study_language == "es" %}selected{% endif %}
+                            >
+                                ES Espanhol
+                            </option>
+
                         </select>
 
                     </div>
@@ -250,4 +277,5 @@
     </main>
 
 </body>
+
 </html>

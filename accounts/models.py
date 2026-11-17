@@ -35,6 +35,17 @@ class UserProfile(models.Model):
 		blank=True
 	)
 
+	LANGUAGE_CHOICES = [
+    	("en", "Inglês"),
+    	("es", "Espanhol"),
+	]
+
+	study_language = models.CharField(
+    	max_length=2,
+    	choices=LANGUAGE_CHOICES,
+    	default="en",
+	)
+
 
 class ConsentRecord(models.Model):
 	# Histórico de aceite e revogação (art. 8º da LGPD): finalidade, data e versão.
