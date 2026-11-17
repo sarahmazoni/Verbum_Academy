@@ -2,6 +2,7 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login as auth_login, logout
 from django.contrib.auth.decorators import login_required
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.contrib import messages
@@ -317,11 +318,9 @@ def perfil(request):
         },
     )
 
-# VALIDAÇÃO DO 2FA
+# VALIDAÇÃO DO 2FA (com rate-limit)
 
 def verify_2fa(request):
-
-    # Recupera o ID armazenado na sessão
     user_id = request.session.get('pending_2fa_user_id')
 
     if not user_id:
@@ -335,19 +334,28 @@ def verify_2fa(request):
 
     profile, _ = UserProfile.objects.get_or_create(user=user)
 
+    # Rate-limit TOTP
+    failed_key = f'totp_failed_{user.id}'
+    lock_key = f'totp_locked_until_{user.id}'
+
+    locked_until = request.session.get(lock_key)
+    if locked_until and timezone.now().timestamp() < locked_until:
+        return render(
+            request,
+            'verify_2fa.html',
+            {'error': 'Muitas tentativas inválidas. Aguarde 5 minutos.'}
+        )
+
     if request.method == 'POST':
-
         codigo = request.POST.get('codigo', '').strip()
-
         secret = decrypt_totp_secret(profile.totp_secret)
-
         totp = pyotp.TOTP(secret)
 
         if totp.verify(codigo):
+            request.session.pop(failed_key, None)
+            request.session.pop(lock_key, None)
 
-            # Login após validar o segundo fator
             auth_login(request, user)
-
             audit_log(
                 request,
                 event='2FA_SUCCESS',
@@ -356,19 +364,30 @@ def verify_2fa(request):
                 user=user,
                 email=user.email,
             )
-
             request.session.pop('pending_2fa_user_id', None)
-
             return redirect('painel')
+
+        # Falha
+        failed = request.session.get(failed_key, 0) + 1
+        request.session[failed_key] = failed
 
         audit_log(
             request,
             event='2FA_FAILURE',
             success=False,
-            message='Falha na validação de 2FA.',
+            message=f'Falha na validação de 2FA (tentativa {failed}).',
             user=user,
             email=user.email,
         )
+
+        if failed >= 5:
+            request.session[lock_key] = (timezone.now() + timedelta(minutes=5)).timestamp()
+            request.session.pop(failed_key, None)
+            return render(
+                request,
+                'verify_2fa.html',
+                {'error': 'Muitas tentativas inválidas. Conta bloqueada por 5 minutos.'}
+            )
 
         return render(
             request,
@@ -677,8 +696,9 @@ def excluir_conta(request):
         'accounts/conta_excluida.html'
     )
 
-# AUDITORIA
+# AUDITORIA (restrita a staff)
 
+@staff_member_required
 @login_required
 def auditoria_logs(request):
 
